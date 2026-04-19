@@ -29,12 +29,48 @@ Click **Refresh Quotes** to fetch live prices immediately.
 
 ## Configuration
 
-All settings live in `src/main/resources/application.properties`.
+Application settings are split into two files:
+
+| File | Committed to Git? | Contains |
+|---|---|---|
+| `src/main/resources/application.properties` | ✅ Yes | Non-sensitive defaults (port, scheduler, DB, quote provider) |
+| `application-secret.properties` | ❌ No (gitignored) | Credentials, API keys, environment-specific URIs |
+
+### Initial Setup
+
+1. Copy the template to create your secrets file:
+   ```bash
+   cp application-secret.properties.example application-secret.properties
+   ```
+
+2. Edit `application-secret.properties` and fill in your values:
+   ```properties
+   # Keycloak OAuth2
+   KEYCLOAK_ISSUER_URI=https://<KEYCLOAK_HOST>:8180/realms/<YOUR_REALM>
+   KEYCLOAK_CLIENT_SECRET=<your-client-secret>
+   OAUTH_REDIRECT_URI=http://localhost:8080
+
+   # Alpha Vantage (only needed if portfolio.quote-provider=ALPHA_VANTAGE)
+   ALPHA_VANTAGE_API_KEY=<your-api-key>
+   ```
+
+### Secret Properties Reference
+
+| Property | Required | Description |
+|---|---|---|
+| `KEYCLOAK_ISSUER_URI` | When OAuth enabled | Your Keycloak realm URL, e.g. `https://192.168.1.100:8180/realms/my-realm` |
+| `KEYCLOAK_CLIENT_SECRET` | When OAuth enabled | Client secret from Keycloak (Clients → your-client → Credentials) |
+| `OAUTH_REDIRECT_URI` | No | OAuth redirect URI. Defaults to `http://localhost:8080` |
+| `ALPHA_VANTAGE_API_KEY` | No | Only needed if `portfolio.quote-provider=ALPHA_VANTAGE` |
+
+### Application Properties Reference
+
+These are in `application.properties` and generally don't need changing:
 
 | Property | Default | Description |
 |---|---|---|
+| `portfolio.oauth.enabled` | `true` | Set to `false` to disable OAuth (allow all requests without login) |
 | `portfolio.quote-provider` | `YAHOO` | `YAHOO` or `ALPHA_VANTAGE` |
-| `portfolio.alpha-vantage.api-key` | — | Required if using Alpha Vantage |
 | `portfolio.quote-fetch-cron` | `0 35 9 * * MON-FRI` | Cron for scheduled refresh |
 | `portfolio.scheduler-timezone` | `America/New_York` | Timezone for the scheduler |
 | `server.port` | `8080` | HTTP port |
@@ -43,12 +79,30 @@ All settings live in `src/main/resources/application.properties`.
 
 1. Get a free key at https://www.alphavantage.co/support/#api-key
 2. Set in `application.properties`:
-   ```
+   ```properties
    portfolio.quote-provider=ALPHA_VANTAGE
-   portfolio.alpha-vantage.api-key=YOUR_KEY_HERE
+   ```
+3. Set in `application-secret.properties`:
+   ```properties
+   ALPHA_VANTAGE_API_KEY=your_actual_key
    ```
 
 Alpha Vantage free tier allows 25 requests/day — fine for small portfolios.
+
+### Keycloak / OAuth2 Setup
+
+This app uses Keycloak for authentication via OAuth2/OpenID Connect.
+
+1. Create a realm and a client in your Keycloak instance
+2. Set the client's **Access Type** to `confidential`
+3. Add `http://localhost:8080/*` (or your server URL) as a **Valid Redirect URI**
+4. Copy the client secret from the **Credentials** tab into `application-secret.properties`
+
+To **disable OAuth** (e.g. for local development without Keycloak), set in `application.properties`:
+```properties
+portfolio.oauth.enabled=false
+```
+No secrets file is needed when OAuth is disabled.
 
 ## Database
 
@@ -86,6 +140,9 @@ Restart=on-failure
 [Install]
 WantedBy=multi-user.target
 ```
+
+> **Note:** Place your `application-secret.properties` file in the `WorkingDirectory`
+> (e.g. `/opt/portfolio-tracker/application-secret.properties`) so Spring Boot picks it up at runtime.
 
 ```bash
 sudo systemctl daemon-reload

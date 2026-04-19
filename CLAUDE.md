@@ -93,10 +93,11 @@ portfolio.alpha-vantage.api-key=YOUR_KEY_HERE
 portfolio.quote-fetch-cron=0 35 9 * * MON-FRI
 portfolio.scheduler-timezone=America/New_York
 
-# Keycloak OAuth2
-spring.security.oauth2.client.provider.kathir-homelab.issuer-uri=http://192.168.1.169:8180/realms/kathir-homelab
+# Keycloak OAuth2 (secrets are in application-secret.properties, which is gitignored)
+# See application-secret.properties.example for the template
+spring.security.oauth2.client.provider.kathir-homelab.issuer-uri=${KEYCLOAK_ISSUER_URI}
 spring.security.oauth2.client.registration.keycloak.client-id=portfolio-tracker
-spring.security.oauth2.client.registration.keycloak.client-secret=nSkUG1RIwdko6NJZQsn8GAEL9ZRV4t5Z
+spring.security.oauth2.client.registration.keycloak.client-secret=${KEYCLOAK_CLIENT_SECRET}
 ```
 
 ### Database
