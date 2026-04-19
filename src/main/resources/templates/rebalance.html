@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Portfolio Tracker - Rebalance Suggestor</title>
+    <link rel="stylesheet" th:href="@{/css/dashboard.css}"/>
+    <style>
+        .result-section { margin-top: 2rem; }
+        .buy-table th, .buy-table td { color: var(--green); }
+        .sell-table th, .sell-table td { color: var(--amber); }
+        .action-icon { font-size: 1.2rem; margin-right: 0.25rem; }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem;}
+        .form-card { max-width: 800px; margin: 0 auto; }
+        .textarea-prices { font-family: monospace; font-size: 0.82rem; padding: 0.5rem; border: 1px solid var(--border); border-radius: 4px; resize: vertical; width: 100%; background: var(--bg3); color: var(--text); }
+        .checkbox-group { display: flex; align-items: center; gap: 0.5rem; }
+        .checkbox-group input[type="checkbox"] { width: auto; }
+    </style>
+</head>
+<body>
+
+<header class="header">
+    <div class="header-inner">
+        <div class="header-title">
+            <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+            </svg>
+            <a href="/" style="color: inherit; text-decoration: none;">Portfolio Tracker</a>
+            <span style="color: var(--muted); margin-left: 0.5rem;">/ Rebalance Suggestor</span>
+        </div>
+        <div class="header-meta">
+            <a href="/" class="btn btn-sm btn-ghost">⬅ Back to Dashboard</a>
+        </div>
+    </div>
+</header>
+
+<main class="main">
+
+    <div class="flash" th:if="${error}" th:text="${error}" style="background: var(--red-bg); border-color: #5a1a1a; color: var(--red);"></div>
+
+    <!-- Configuration Form -->
+    <section class="card form-card">
+        <h2 class="section-title">Rebalance Configuration</h2>
+        <form th:action="@{/rebalance/suggest}" th:object="${request}" method="post" style="display:flex; flex-direction:column; gap:1.25rem;">
+            
+            <div class="form-group">
+                <label for="portfolioId">Portfolio</label>
+                <select id="portfolioId" name="portfolioId" required>
+                    <option value="">-- Select Portfolio to Rebalance --</option>
+                    <option th:each="p : ${portfolios}" th:value="${p.id}" th:text="${p.name}" th:selected="${request.portfolioId == p.id}"></option>
+                </select>
+            </div>
+
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:1rem;">
+                <div class="form-group">
+                    <label for="tolerancePct">Tolerance % (Drift Threshold)</label>
+                    <input type="number" id="tolerancePct" th:field="*{tolerancePct}" step="0.01" min="0" required placeholder="e.g. 1.00"/>
+                    <p class="field-hint" style="font-size:0.75rem; color:var(--muted); margin-top:2px;">Only rebalance if any drift exceeds this.</p>
+                </div>
+                
+                <div class="form-group">
+                    <label>Fractional Shares Enabled?</label>
+                    <div class="checkbox-group" style="padding:0.5rem 0;">
+                        <input type="checkbox" id="allowFractionalShares" th:field="*{allowFractionalShares}"/>
+                        <label for="allowFractionalShares" style="cursor:pointer; display:inline;">Allow partial shares (e.g. 1.25 shares)</label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-group" style="border-top:1px solid var(--border); padding-top:1rem;">
+                <label>Rebalance Strategy</label>
+                <div class="checkbox-group" style="margin-bottom:0.5rem;">
+                    <input type="checkbox" id="useNewMoney" th:field="*{useNewMoney}" onchange="document.getElementById('newMoneyGroup').style.display = this.checked ? 'block' : 'none';"/>
+                    <label for="useNewMoney" style="cursor:pointer; display:inline;">I am bringing new money to invest</label>
+                </div>
+                
+                <div class="form-group" id="newMoneyGroup" th:style="${request.useNewMoney ? 'display:block;' : 'display:none;'}">
+                    <label for="newMoneyAmount">New Money Amount ($)</label>
+                    <input type="number" id="newMoneyAmount" th:field="*{newMoneyAmount}" step="0.01" min="0" placeholder="0.00"/>
+                    <p class="field-hint" style="font-size:0.75rem; color:var(--muted); margin-top:2px;">If this amount doesn't cover the drift, overweight assets will also be sold to perfectly balance.</p>
+                </div>
+            </div>
+
+            <div class="form-group" style="border-top:1px solid var(--border); padding-top:1rem;">
+                <label for="tsvPrices">Optional: Fresh Prices (TSV)</label>
+                <textarea id="tsvPrices" th:field="*{tsvPrices}" rows="4" class="textarea-prices" placeholder="Paste data copied from brokerage...&#10;Symbol | Last Price $ | ..."></textarea>
+                <p class="field-hint" style="font-size:0.75rem; color:var(--muted); margin-top:2px;">Leave empty to use the latest cached quotes from the dashboard.</p>
+            </div>
+
+            <button class="btn btn-primary" type="submit" style="align-self: flex-start;">Generate Suggestion</button>
+        </form>
+    </section>
+
+    <!-- Results Section -->
+    <th:block th:if="${response != null}">
+        <div class="result-section">
+            <h2 class="section-title">Suggestion Results</h2>
+
+            <div class="stats-grid">
+                <div class="card summary-card">
+                    <div class="summary-label">Expected Target Value</div>
+                    <div class="summary-value" th:text="${'$' + #numbers.formatDecimal(response.expectedInvestedValue, 1, 'COMMA', 2, 'POINT')}">$0.00</div>
+                </div>
+                <div class="card summary-card">
+                    <div class="summary-label">Remaining Unused Cash</div>
+                    <div class="summary-value" th:text="${'$' + #numbers.formatDecimal(response.remainingCash, 1, 'COMMA', 2, 'POINT')}">$0.00</div>
+                    <div class="summary-sub">Due to limits like whole-share restrictions</div>
+                </div>
+            </div>
+
+            <div class="card table-card" th:if="${#lists.isEmpty(response.buys) and #lists.isEmpty(response.sells)}">
+                 <div class="empty-state">
+                     <div class="empty-icon">✅</div>
+                     <h3>No Rebalance Required</h3>
+                     <p>Your portfolio is currently within the configured tolerance bounds.</p>
+                 </div>
+            </div>
+
+            <section class="card table-card" th:if="${not #lists.isEmpty(response.sells)}" style="border-left: 4px solid var(--amber); margin-bottom:1.5rem;">
+                <h3 class="section-title" style="color:var(--amber);"><span class="action-icon">📉</span> Sells to Execute</h3>
+                <div class="table-wrapper">
+                    <table class="holdings-table sell-table">
+                        <thead>
+                            <tr>
+                                <th>Ticker</th>
+                                <th class="right">Shares to Sell</th>
+                                <th class="right">Est. Price</th>
+                                <th class="right">Cash Generated</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr th:each="action : ${response.sells}">
+                                <td><div class="ticker" th:text="${action.ticker}">TICK</div></td>
+                                <td class="right mono" th:text="${#numbers.formatDecimal(action.shares, 1, 'COMMA', 4, 'POINT')}">0</td>
+                                <td class="right mono" th:text="${'$' + #numbers.formatDecimal(action.estimatedPrice, 1, 'COMMA', 2, 'POINT')}">$0.00</td>
+                                <td class="right mono" th:text="${'$' + #numbers.formatDecimal(action.totalValue, 1, 'COMMA', 2, 'POINT')}">$0.00</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="card table-card" th:if="${not #lists.isEmpty(response.buys)}" style="border-left: 4px solid var(--green); margin-bottom:1.5rem;">
+                <h3 class="section-title" style="color:var(--green);"><span class="action-icon">📈</span> Buys to Execute</h3>
+                <div class="table-wrapper">
+                    <table class="holdings-table buy-table">
+                        <thead>
+                            <tr>
+                                <th>Ticker</th>
+                                <th class="right">Shares to Buy</th>
+                                <th class="right">Est. Price</th>
+                                <th class="right">Cost Req.</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr th:each="action : ${response.buys}">
+                                <td><div class="ticker" th:text="${action.ticker}">TICK</div></td>
+                                <td class="right mono" th:text="${#numbers.formatDecimal(action.shares, 1, 'COMMA', 4, 'POINT')}">0</td>
+                                <td class="right mono" th:text="${'$' + #numbers.formatDecimal(action.estimatedPrice, 1, 'COMMA', 2, 'POINT')}">$0.00</td>
+                                <td class="right mono" th:text="${'$' + #numbers.formatDecimal(action.totalValue, 1, 'COMMA', 2, 'POINT')}">$0.00</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="card table-card" th:if="${not #lists.isEmpty(response.projectedHoldings)}">
+                <h3 class="section-title">Projected Portfolio End State</h3>
+                <div class="table-wrapper">
+                    <table class="holdings-table">
+                        <thead>
+                            <tr>
+                                <th>Ticker</th>
+                                <th class="right">Final Shares</th>
+                                <th class="right">Target %</th>
+                                <th class="right">Projected %</th>
+                                <th class="right">Final Drift %</th>
+                                <th class="right">Final Value</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr th:each="row : ${response.projectedHoldings}">
+                                <td><div class="ticker" th:text="${row.ticker}">TICK</div></td>
+                                <td class="right mono" th:text="${#numbers.formatDecimal(row.finalShares, 1, 'COMMA', 4, 'POINT')}">0</td>
+                                <td class="right mono" th:text="${#numbers.formatDecimal(row.targetAllocationPct, 1, 2) + '%'}">0%</td>
+                                <td class="right mono" th:text="${#numbers.formatDecimal(row.projectedAllocationPct, 1, 2) + '%'}">0%</td>
+                                <td class="right mono drift"
+                                    th:classappend="${row.driftPct > 0} ? 'drift-over' : (${row.driftPct < 0} ? 'drift-under' : '')"
+                                    th:text="${(row.driftPct > 0 ? '+' : '') + #numbers.formatDecimal(row.driftPct, 1, 2) + '%'}">0%</td>
+                                <td class="right mono" th:text="${'$' + #numbers.formatDecimal(row.finalValue, 1, 'COMMA', 2, 'POINT')}">$0.00</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                
+                <div class="alloc-bar-section">
+                    <div class="alloc-bar-label">Projected Allocation</div>
+                    <div class="alloc-bar">
+                        <div th:each="row, stat : ${response.projectedHoldings}"
+                             class="alloc-segment"
+                             th:style="${'width:' + row.projectedAllocationPct + '%'}"
+                             th:title="${row.ticker + ': ' + row.projectedAllocationPct + '%'}">
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+        </div>
+    </th:block>
+
+</main>
+
+<script>
+    // Just minimal client side state restore for usability
+    document.addEventListener("DOMContentLoaded", function() {
+        if(document.getElementById('useNewMoney').checked) {
+            document.getElementById('newMoneyGroup').style.display = 'block';
+        }
+    });
+</script>
+</body>
+</html>

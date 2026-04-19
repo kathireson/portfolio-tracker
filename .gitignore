@@ -1,0 +1,10 @@
+.classpath
+.claude
+.idea
+.vscode
+.settings
+.project
+.factorypath
+target
+deployment-script.sh
+data

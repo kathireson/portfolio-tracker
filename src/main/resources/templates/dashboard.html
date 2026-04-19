@@ -1,0 +1,512 @@
+
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Portfolio Tracker</title>
+    <link rel="stylesheet" th:href="@{/css/dashboard.css}"/>
+</head>
+<body>
+
+<header class="header">
+    <div class="header-inner">
+        <div class="header-title">
+            <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+            </svg>
+            <span>Portfolio Tracker</span>
+        </div>
+        <div class="header-meta">
+            <span class="badge badge-green" th:if="${vm.lastUpdated != null}">Live</span>
+            <span class="last-updated" th:if="${vm.lastUpdated != null}">
+                Updated <span th:text="${#temporals.format(vm.lastUpdated, 'MMM d, h:mm a')}">—</span>
+            </span>
+            <form th:action="@{/quotes/refresh}" method="post" style="display:inline">
+                <button class="btn btn-primary" type="submit">↻ Refresh Quotes</button>
+            </form>
+            <a href="/rebalance" class="btn btn-sm btn-ghost" title="Rebalance Recommendations">⚖️ Rebalance</a>
+            <a href="/debug/tables" class="btn btn-sm btn-ghost" title="View H2 database tables">🔧 Debug</a>
+        </div>
+    </div>
+</header>
+
+<main class="main">
+
+    <!-- Flash message -->
+    <div class="flash" th:if="${message}" th:text="${message}"></div>
+
+    <!-- Grand total card (across all portfolios) -->
+    <section class="summary-grid" th:if="${vm.portfolios != null and not vm.portfolios.isEmpty()}">
+        <div class="card summary-card">
+            <div class="summary-label">Total Value (All Portfolios)</div>
+            <div class="summary-value" th:text="${'$' + #numbers.formatDecimal(vm.grandTotalValue, 1, 'COMMA', 2, 'POINT')}">$0.00</div>
+        </div>
+    </section>
+
+    <!-- Loop through each portfolio -->
+    <th:block th:each="portfolio : ${vm.portfolios}">
+        <!-- Portfolio section header -->
+        <div class="portfolio-header">
+            <h2 class="portfolio-name" th:text="${portfolio.portfolioName}">Portfolio Name</h2>
+            <div class="portfolio-summary">
+                <span class="portfolio-value" th:text="${'$' + #numbers.formatDecimal(portfolio.totalValue, 1, 'COMMA', 2, 'POINT')}">$0.00</span>
+                <span class="portfolio-holdings" th:text="${#lists.size(portfolio.holdings) + ' holdings'}">0 holdings</span>
+                <a th:href="@{/portfolio/{id}/history(id=${portfolio.portfolioId})}" class="btn btn-sm btn-primary">📈 History</a>
+            </div>
+        </div>
+
+        <!-- Summary cards per portfolio -->
+        <section class="summary-grid">
+            <div class="card summary-card">
+                <div class="summary-label">Total Value</div>
+                <div class="summary-value" th:text="${'$' + #numbers.formatDecimal(portfolio.totalValue, 1, 'COMMA', 2, 'POINT')}">$0.00</div>
+            </div>
+            <div class="card summary-card" th:if="${portfolio.allocatedValue > 0}">
+                <div class="summary-label">Allocated Value</div>
+                <div class="summary-value" th:text="${'$' + #numbers.formatDecimal(portfolio.allocatedValue, 1, 'COMMA', 2, 'POINT')}">$0.00</div>
+            </div>
+            <div class="card summary-card" th:if="${portfolio.untrackedValue > 0}">
+                <div class="summary-label">Untracked Value</div>
+                <div class="summary-value" th:text="${'$' + #numbers.formatDecimal(portfolio.untrackedValue, 1, 'COMMA', 2, 'POINT')}">$0.00</div>
+            </div>
+            <div class="card summary-card" th:if="${portfolio.cashValue > 0}">
+                <div class="summary-label">Cash</div>
+                <div class="summary-value" th:text="${'$' + #numbers.formatDecimal(portfolio.cashValue, 1, 'COMMA', 2, 'POINT')}">$0.00</div>
+            </div>
+            <div class="card summary-card">
+                <div class="summary-label">Target Allocation Sum</div>
+                <div class="summary-value"
+                     th:classappend="${portfolio.totalTargetPct == 100} ? '' : ' warn'"
+                     th:text="${#numbers.formatDecimal(portfolio.totalTargetPct, 1, 2) + '%'}">100%</div>
+                <div class="summary-sub" th:if="${portfolio.totalTargetPct != 100}">Should equal 100%</div>
+            </div>
+            <div class="card summary-card">
+                <div class="summary-label">Snapshot Date</div>
+                <div class="summary-value" th:text="${#temporals.format(portfolio.snapshotDate, 'MMM d, yyyy')}">—</div>
+            </div>
+        </section>
+
+        <!-- Allocated Holdings table -->
+        <section class="card table-card" th:if="${not #lists.isEmpty(portfolio.holdings)}">
+            <h3 class="section-title">Allocated Holdings &amp; Drift</h3>
+            <div class="table-wrapper">
+                <table class="holdings-table">
+                    <thead>
+                    <tr>
+                        <th>Ticker</th>
+                        <th class="right">Price</th>
+                        <th class="right">Shares</th>
+                        <th class="right">Value</th>
+                        <th class="right">Current %</th>
+                        <th class="right">Target %</th>
+                        <th class="right">Drift %</th>
+                        <th class="right">Drift $</th>
+                        <th class="center">Action</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <tr th:each="row : ${portfolio.holdings}">
+                        <td>
+                            <div class="ticker" th:text="${row.ticker}">TICK</div>
+                            <div class="holding-name" th:text="${row.name}">Name</div>
+                        </td>
+                        <td class="right mono" th:text="${'$' + #numbers.formatDecimal(row.currentPrice, 1, 'COMMA', 2, 'POINT')}">$0.00</td>
+                        <td class="right mono" th:text="${#numbers.formatDecimal(row.sharesOwned, 1, 'COMMA', 4, 'POINT')}">0</td>
+                        <td class="right mono" th:text="${'$' + #numbers.formatDecimal(row.currentValue, 1, 'COMMA', 2, 'POINT')}">$0.00</td>
+                        <td class="right mono" th:text="${#numbers.formatDecimal(row.currentAllocationPct, 1, 2) + '%'}">0%</td>
+                        <td class="right mono" th:text="${#numbers.formatDecimal(row.targetAllocationPct, 1, 2) + '%'}">0%</td>
+                        <td class="right mono drift"
+                            th:classappend="${row.driftPct > 0} ? 'drift-over' : (${row.driftPct < 0} ? 'drift-under' : '')"
+                            th:text="${(row.driftPct > 0 ? '+' : '') + #numbers.formatDecimal(row.driftPct, 1, 2) + '%'}">0%</td>
+                        <td class="right mono drift"
+                            th:classappend="${row.driftDollars > 0} ? 'drift-over' : (${row.driftDollars < 0} ? 'drift-under' : '')"
+                            th:text="${(row.driftDollars > 0 ? '+$' : '-$') + #numbers.formatDecimal(row.driftDollars.abs(), 1, 'COMMA', 2, 'POINT')}">$0</td>
+                        <td class="center">
+                            <button class="btn btn-sm btn-ghost edit-btn"
+                                    th:data-id="${row.id}"
+                                    th:data-ticker="${row.ticker}"
+                                    th:data-shares="${row.sharesOwned}"
+                                    th:data-target="${row.targetAllocationPct}">
+                                Edit
+                            </button>
+                            <form th:action="@{/holdings/{id}/delete(id=${row.id})}" method="post" style="display:inline"
+                                  onsubmit="return confirm('Remove this holding?')">
+                                <button class="btn btn-sm btn-danger" type="submit">✕</button>
+                            </form>
+                        </td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Allocation bar -->
+            <div class="alloc-bar-section">
+                <div class="alloc-bar-label">Allocation</div>
+                <div class="alloc-bar">
+                    <div th:each="row, stat : ${portfolio.holdings}"
+                         class="alloc-segment"
+                         th:style="${'width:' + row.currentAllocationPct + '%'}"
+                         th:attr="data-ticker=${row.ticker},data-pct=${row.currentAllocationPct}"
+                         th:title="${row.ticker + ': ' + row.currentAllocationPct + '%'}">
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Untracked Holdings table -->
+        <section class="card table-card" th:if="${not #lists.isEmpty(portfolio.untrackedHoldings)}">
+            <h3 class="section-title">Untracked Holdings</h3>
+            <p class="section-subtitle">These holdings are quoted but not tracked for allocation %</p>
+            <div class="table-wrapper">
+                <table class="holdings-table">
+                    <thead>
+                    <tr>
+                        <th>Ticker</th>
+                        <th class="right">Price</th>
+                        <th class="right">Shares</th>
+                        <th class="right">Value</th>
+                        <th class="center">Action</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <tr th:each="row : ${portfolio.untrackedHoldings}">
+                        <td>
+                            <div class="ticker" th:text="${row.ticker}">TICK</div>
+                            <div class="holding-name" th:text="${row.name}">Name</div>
+                        </td>
+                        <td class="right mono" th:text="${'$' + #numbers.formatDecimal(row.currentPrice, 1, 'COMMA', 2, 'POINT')}">$0.00</td>
+                        <td class="right mono" th:text="${#numbers.formatDecimal(row.sharesOwned, 1, 'COMMA', 4, 'POINT')}">0</td>
+                        <td class="right mono" th:text="${'$' + #numbers.formatDecimal(row.currentValue, 1, 'COMMA', 2, 'POINT')}">$0.00</td>
+                        <td class="center">
+                            <button class="btn btn-sm btn-ghost edit-btn"
+                                    th:data-id="${row.id}"
+                                    th:data-ticker="${row.ticker}"
+                                    th:data-shares="${row.sharesOwned}"
+                                    th:data-target="0">
+                                Edit
+                            </button>
+                            <form th:action="@{/holdings/{id}/delete(id=${row.id})}" method="post" style="display:inline"
+                                  onsubmit="return confirm('Remove this holding?')">
+                                <button class="btn btn-sm btn-danger" type="submit">✕</button>
+                            </form>
+                        </td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Cash Holdings table -->
+        <section class="card table-card" th:if="${not #lists.isEmpty(portfolio.cashHoldings)}">
+            <h3 class="section-title">Cash</h3>
+            <p class="section-subtitle">Cash holdings are not quoted and not tracked for allocation %</p>
+            <div class="table-wrapper">
+                <table class="holdings-table">
+                    <thead>
+                    <tr>
+                        <th>Ticker</th>
+                        <th class="right">Shares</th>
+                        <th class="right">Value</th>
+                        <th class="center">Action</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <tr th:each="row : ${portfolio.cashHoldings}">
+                        <td>
+                            <div class="ticker" th:text="${row.ticker}">CASH</div>
+                            <div class="holding-name" th:text="${row.name}">Name</div>
+                        </td>
+                        <td class="right mono">—</td>
+                        <td class="right mono" th:text="${'$' + #numbers.formatDecimal(row.currentValue, 1, 'COMMA', 2, 'POINT')}">$0.00</td>
+                        <td class="center">
+                            <button class="btn btn-sm btn-ghost edit-btn"
+                                    th:data-id="${row.id}"
+                                    th:data-ticker="${row.ticker}"
+                                    th:data-shares="${row.sharesOwned}"
+                                    th:data-target="0">
+                                Edit
+                            </button>
+                            <form th:action="@{/holdings/{id}/delete(id=${row.id})}" method="post" style="display:inline"
+                                  onsubmit="return confirm('Remove this holding?')">
+                                <button class="btn btn-sm btn-danger" type="submit">✕</button>
+                            </form>
+                        </td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Bulk Edit panel -->
+        <section class="card table-card">
+            <div class="bulk-edit-header"
+                 th:data-portfolio-id="${portfolio.portfolioId}"
+                 onclick="toggleBulkEdit(this, this.dataset.portfolioId)"
+                 style="cursor:pointer; display:flex; align-items:center; gap:0.5rem;">
+                <span style="font-size:1.1rem;">📋</span>
+                <h3 class="section-title" style="margin:0;">Bulk Edit from Brokerage</h3>
+                <span class="btn btn-sm btn-ghost bulk-toggle-label" style="margin-left:auto;">▼ Expand</span>
+            </div>
+
+            <div th:id="${'bulk-edit-body-' + portfolio.portfolioId}" style="display:none; margin-top:1rem;">
+                <p class="section-subtitle">
+                    Paste tab-separated data copied from your brokerage account.<br/>
+                    Expected columns: <code>Symbol | Last Price $ | Change $ | Change % | Qty # | …</code><br/>
+                    Only <strong>Symbol</strong> (col 1) and <strong>Qty #</strong> (col 5) are used.
+                    Unknown tickers are skipped.
+                </p>
+                <textarea
+                        th:id="${'bulk-tsv-' + portfolio.portfolioId}"
+                        rows="8"
+                        style="width:100%; font-family:monospace; font-size:0.82rem; padding:0.5rem;
+                   border:1px solid var(--border,#ccc); border-radius:4px; resize:vertical;"
+                        placeholder="Paste TSV data here…"></textarea>
+                <div style="display:flex; gap:0.75rem; margin-top:0.5rem; align-items:center;">
+                    <button class="btn btn-primary bulk-apply-btn"
+                            th:data-portfolio-id="${portfolio.portfolioId}"
+                            onclick="submitBulkEdit(this.dataset.portfolioId)">
+                        Apply Bulk Edit
+                    </button>
+                    <button class="btn btn-ghost bulk-clear-btn"
+                            th:data-portfolio-id="${portfolio.portfolioId}"
+                            onclick="document.getElementById('bulk-tsv-' + this.dataset.portfolioId).value=''">
+                        Clear
+                    </button>
+                    <span th:id="${'bulk-result-' + portfolio.portfolioId}"
+                          style="font-size:0.85rem; color: var(--text-muted, #666);"></span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Empty state for portfolio -->
+        <section class="card empty-state" th:if="${#lists.isEmpty(portfolio.holdings)}">
+            <div class="empty-icon">📊</div>
+            <h3 th:text="${portfolio.portfolioName + ' has no holdings yet'}">Portfolio has no holdings yet</h3>
+            <p>Add your first holding below to start tracking this portfolio.</p>
+        </section>
+    </th:block>
+
+    <!-- Add holding form -->
+    <section class="card form-card">
+        <h2 class="section-title">Add Holding</h2>
+        <form th:action="@{/holdings}" th:object="${newHolding}" method="post" class="add-form">
+            <div class="form-group">
+                <label for="portfolio">Portfolio</label>
+                <select id="portfolio" name="portfolioId" required>
+                    <option value="">-- Select Portfolio --</option>
+                    <option th:each="p : ${portfolios}" th:value="${p.id}" th:text="${p.name}"
+                            th:selected="${newHolding.portfolio != null and newHolding.portfolio.id == p.id}">
+                        Portfolio
+                    </option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="holdingType">Holding Type</label>
+                <select id="holdingType" name="holdingType" required onchange="updateFormForHoldingType(this.value)">
+                    <option value="ALLOCATED" th:selected="${newHolding.holdingType == 'ALLOCATED'}">Allocated (tracked for rebalancing)</option>
+                    <option value="UNTRACKED" th:selected="${newHolding.holdingType == 'UNTRACKED'}">Untracked (quoted but not allocated %)</option>
+                    <option value="CASH" th:selected="${newHolding.holdingType == 'CASH'}">Cash (no quotes, no allocation)</option>
+                </select>
+                <p class="field-hint" id="typeHint">
+                    <strong>Allocated:</strong> Contributes to rebalancing calculations and allocation %<br/>
+                    <strong>Untracked:</strong> Quotes are fetched but not tracked for allocation % or drift<br/>
+                    <strong>Cash:</strong> No price quotes, just a value entry for cash holdings
+                </p>
+            </div>
+            <div class="form-group" id="tickerGroup">
+                <label for="ticker">Ticker <span id="tickerLabel"></span></label>
+                <input id="ticker" type="text" th:field="*{ticker}"
+                       placeholder="e.g. AAPL, VOO, BTC-USD" required autocomplete="off"/>
+                <p class="field-hint" id="tickerHint">Unique identifier for this holding (e.g., ticker symbol or account name)</p>
+                <span class="field-error" th:if="${#fields.hasErrors('ticker')}" th:errors="*{ticker}"></span>
+            </div>
+            <div class="form-group" id="nameGroup">
+                <label for="name" id="nameLabel">Name (optional)</label>
+                <input id="name" type="text" th:field="*{name}" placeholder="e.g. Apple Inc."/>
+                <p class="field-hint" id="nameHint">Human-friendly description of this holding</p>
+            </div>
+            <div class="form-group" id="sharesGroup">
+                <label for="sharesOwned" id="sharesLabel">Shares / Units owned</label>
+                <input id="sharesOwned" type="number" th:field="*{sharesOwned}"
+                       step="0.00000001" min="0" placeholder="0.0" required/>
+                <p class="field-hint" id="sharesHint">Number of shares/units you own</p>
+                <span class="field-error" th:if="${#fields.hasErrors('sharesOwned')}" th:errors="*{sharesOwned}"></span>
+            </div>
+            <div class="form-group" id="allocationGroup">
+                <label for="targetAllocationPct">Target allocation (%)</label>
+                <input id="targetAllocationPct" type="number" th:field="*{targetAllocationPct}"
+                       step="0.01" min="0" max="100" placeholder="e.g. 25" required/>
+                <p class="field-hint" id="allocationHint">Desired weight of this holding in your portfolio. All allocated holdings should sum to 100%.</p>
+                <span class="field-error" th:if="${#fields.hasErrors('targetAllocationPct')}" th:errors="*{targetAllocationPct}"></span>
+            </div>
+            <button class="btn btn-primary" type="submit">Add Holding</button>
+        </form>
+    </section>
+
+    <script>
+        function updateFormForHoldingType(type) {
+            const allocationGroup = document.getElementById('allocationGroup');
+            const tickerGroup = document.getElementById('tickerGroup');
+            const nameGroup = document.getElementById('nameGroup');
+            const sharesLabel = document.getElementById('sharesLabel');
+            const sharesHint = document.getElementById('sharesHint');
+            const tickerHint = document.getElementById('tickerHint');
+            const tickerLabel = document.getElementById('tickerLabel');
+            const allocationInput = document.getElementById('targetAllocationPct');
+            const tickerInput = document.getElementById('ticker');
+            const nameInput = document.getElementById('name');
+            
+            if (type === 'CASH') {
+                // CASH: Hide allocation and ticker/name fields, auto-set values
+                allocationGroup.style.display = 'none';
+                tickerGroup.style.display = 'none';
+                nameGroup.style.display = 'none';
+                
+                allocationInput.required = false;
+                allocationInput.value = '0';
+                tickerInput.required = false;
+                tickerInput.value = 'CASH';  // Auto-set ticker to CASH
+                nameInput.value = '';  // Clear name for CASH
+                
+                sharesLabel.textContent = 'Cash Amount / Value';
+                sharesHint.textContent = 'Enter the dollar amount (or other currency) of cash you hold. For example, if you have $5,000 cash, enter 5000 here.';
+            } else if (type === 'UNTRACKED') {
+                // UNTRACKED: Hide allocation, show ticker/name
+                allocationGroup.style.display = 'none';
+                tickerGroup.style.display = 'block';
+                nameGroup.style.display = 'block';
+                
+                allocationInput.required = false;
+                allocationInput.value = '0';
+                tickerInput.required = true;
+                
+                sharesLabel.textContent = 'Shares / Units owned';
+                sharesHint.textContent = 'Number of shares/units you own. Price will be fetched automatically.';
+                
+                tickerLabel.textContent = '';
+                tickerHint.textContent = 'Ticker symbol (e.g., AAPL, VOO, BTC-USD)';
+            } else {
+                // ALLOCATED: Show everything
+                allocationGroup.style.display = 'block';
+                tickerGroup.style.display = 'block';
+                nameGroup.style.display = 'block';
+                
+                allocationInput.required = true;
+                tickerInput.required = true;
+                
+                sharesLabel.textContent = 'Shares / Units owned';
+                sharesHint.textContent = 'Number of shares/units you own. Used to calculate current allocation %.';
+                
+                tickerLabel.textContent = '';
+                tickerHint.textContent = 'Ticker symbol (e.g., AAPL, VOO, BTC-USD)';
+            }
+        }
+        
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            const holdingType = document.getElementById('holdingType').value;
+            updateFormForHoldingType(holdingType);
+        });
+    </script>
+
+    <!-- Portfolio management section -->
+    <section class="card portfolio-management">
+        <h2 class="section-title">Portfolio Management</h2>
+        <div class="portfolios-list">
+            <div class="portfolio-item" th:each="p : ${portfolios}">
+                <div class="portfolio-item-info">
+                    <span class="portfolio-item-name" th:text="${p.name}">Portfolio Name</span>
+                    <span class="portfolio-item-description" th:if="${p.description != null and p.description != ''}" 
+                          th:text="${p.description}">Description</span>
+                </div>
+                <form th:action="@{/portfolios/{id}/delete(id=${p.id})}" method="post" style="display:inline"
+                      onsubmit="return confirm('Delete &quot;' + this.closest('.portfolio-item').querySelector('.portfolio-item-name').textContent + '&quot; and all its holdings?')">
+                    <button class="btn btn-sm btn-danger" type="submit">Delete</button>
+                </form>
+            </div>
+        </div>
+        <form th:action="@{/portfolios}" method="post" class="add-portfolio-form">
+            <div class="form-group">
+                <input type="text" name="name" placeholder="New portfolio name (e.g., Fidelity, Robinhood)" required/>
+            </div>
+            <div class="form-group">
+                <input type="text" name="description" placeholder="Description (optional)" />
+            </div>
+            <button class="btn btn-primary" type="submit">+ Add Portfolio</button>
+        </form>
+    </section>
+
+    <script>
+        function toggleBulkEdit(headerEl, portfolioId) {
+            const body   = document.getElementById('bulk-edit-body-' + portfolioId);
+            const toggle = headerEl.querySelector('.bulk-toggle-label');
+            const hidden = body.style.display === 'none';
+            body.style.display = hidden ? 'block' : 'none';
+            toggle.textContent  = hidden ? '▲ Collapse' : '▼ Expand';
+        }
+
+    function submitBulkEdit(portfolioId) {
+        const textarea   = document.getElementById('bulk-tsv-' + portfolioId);
+        const resultSpan = document.getElementById('bulk-result-' + portfolioId);
+        const tsvData    = textarea.value.trim();
+
+        if (!tsvData) {
+            resultSpan.style.color = 'var(--danger, #c00)';
+            resultSpan.textContent = 'Please paste TSV data first.';
+            return;
+        }
+
+        resultSpan.style.color = 'var(--text-muted, #666)';
+        resultSpan.textContent = 'Processing…';
+
+        fetch('/portfolios/' + portfolioId + '/bulk-edit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ portfolioId: portfolioId, tsvData: tsvData })
+        })
+        .then(r => r.json())
+        .then(result => {
+            if (result.success) {
+                resultSpan.style.color = 'var(--success, green)';
+                resultSpan.textContent = result.message;
+                // Reload page after short delay so tables refresh
+                setTimeout(() => location.reload(), 1500);
+            } else {
+                resultSpan.style.color = 'var(--danger, #c00)';
+                resultSpan.textContent = 'Error: ' + result.message;
+            }
+        })
+        .catch(err => {
+            resultSpan.style.color = 'var(--danger, #c00)';
+            resultSpan.textContent = 'Request failed: ' + err.message;
+        });
+    }
+</script>
+
+</main>
+
+<!-- Edit modal -->
+<div class="modal-overlay" id="editModal" onclick="closeEdit(event)">
+    <div class="modal">
+        <h3 class="modal-title">Edit <span id="editTicker"></span></h3>
+        <form id="editForm" method="post" class="add-form">
+            <div class="form-group">
+                <label>Shares owned</label>
+                <input type="number" id="editShares" name="sharesOwned" step="0.00000001" min="0" required/>
+            </div>
+            <div class="form-group">
+                <label>Target allocation (%)</label>
+                <input type="number" id="editTarget" name="targetAllocationPct" step="0.01" min="0" max="100" required/>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-primary" type="submit">Save</button>
+                <button class="btn btn-ghost" type="button" onclick="document.getElementById('editModal').classList.remove('open')">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script th:src="@{/js/dashboard.js}"></script>
+</body>
+</html>

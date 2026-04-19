@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Debug - Database Tables</title>
+    <link rel="stylesheet" th:href="@{/css/dashboard.css}"/>
+    <style>
+        .debug-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+
+        .debug-title h1 {
+            margin: 0;
+            font-size: 1.5rem;
+        }
+
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: #6366f1;
+            text-decoration: none;
+            font-weight: 500;
+        }
+
+        .back-link:hover {
+            color: #4f46e5;
+        }
+
+        .table-selector {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+
+        .table-btn {
+            padding: 0.5rem 1rem;
+            border: 2px solid var(--border);
+            background: var(--bg3);
+            color: var(--text);
+            cursor: pointer;
+            border-radius: 0.375rem;
+            font-weight: 500;
+            transition: all 0.2s;
+            text-decoration: none;
+            display: inline-block;
+        }
+
+        .table-btn:hover,
+        .table-btn.active {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+
+        .table-wrapper {
+            background: var(--bg2);
+            border: 1px solid var(--border);
+            padding: 1.5rem;
+            border-radius: 0.5rem;
+            margin-bottom: 1.5rem;
+            overflow-x: auto;
+        }
+
+        .table-title {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: var(--text);
+        }
+
+        .debug-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.875rem;
+        }
+
+        .debug-table thead th {
+            text-align: left;
+            padding: 0.75rem;
+            background: var(--bg3);
+            font-weight: 600;
+            border-bottom: 1px solid var(--border);
+            color: var(--muted);
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            letter-spacing: 0.06em;
+        }
+
+        .debug-table tbody tr {
+            border-bottom: 1px solid var(--border);
+            transition: background 0.12s;
+        }
+
+        .debug-table tbody tr:hover {
+            background: var(--bg3);
+        }
+
+        .debug-table td {
+            padding: 0.75rem;
+            max-width: 250px;
+            word-break: break-word;
+            font-family: 'Courier New', monospace;
+            color: var(--text);
+        }
+
+        .pagination {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 1.5rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .pagination a,
+        .pagination span {
+            padding: 0.5rem 0.75rem;
+            border: 1px solid var(--border);
+            border-radius: 0.375rem;
+            text-decoration: none;
+            color: var(--accent);
+            font-weight: 500;
+            transition: all 0.2s;
+            background: var(--bg3);
+        }
+
+        .pagination a:hover {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+
+        .pagination .active {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+
+        .pagination .disabled {
+            color: var(--muted);
+            cursor: not-allowed;
+            opacity: 0.5;
+            background: var(--bg3);
+        }
+
+        .info-box {
+            background: var(--bg3);
+            border-left: 4px solid var(--accent);
+            padding: 1rem;
+            border-radius: 0.375rem;
+            margin-bottom: 1.5rem;
+            border: 1px solid var(--border);
+            color: var(--text);
+        }
+
+        .info-box strong {
+            color: var(--accent);
+        }
+
+        .empty-box {
+            background: var(--bg3);
+            border-left: 4px solid var(--amber);
+            border: 1px solid var(--border);
+        }
+
+        .empty-box strong {
+            color: var(--amber);
+        }
+    </style>
+</head>
+<body>
+
+<header class="header">
+    <div class="header-inner">
+        <div class="header-title">
+            <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <path d="M12 3v6m0 0v6m0-6h6m-6 0H6"/>
+            </svg>
+            <span>Database Debug</span>
+        </div>
+        <div class="header-meta">
+            <a href="/" class="back-link">← Back to Dashboard</a>
+            <a href="/debug/portfolio-snapshots" class="back-link">📊 Portfolio Snapshots</a>
+        </div>
+    </div>
+</header>
+
+<main class="main">
+    <div class="debug-header">
+        <div class="debug-title">
+            <h1>H2 Database Tables</h1>
+        </div>
+        <div class="table-selector">
+            <a th:each="t : ${tables}" 
+               th:href="@{/debug/tables(table=${t}, page=0)}"
+               th:classappend="${table == t} ? 'active' : ''"
+               class="table-btn"
+               th:text="${#strings.capitalize(t)}">
+                Table
+            </a>
+        </div>
+    </div>
+
+    <div class="info-box">
+        <strong>Debug Info:</strong> 
+        Showing <span th:text="${data.size}">0</span> rows out of <span th:text="${data.totalElements}">0</span> total from 
+        <strong th:text="${#strings.toUpperCase(table)}">TABLE</strong> 
+        (page <span th:text="${page + 1}">1</span> of <span th:text="${data.totalPages}">1</span>)
+    </div>
+
+    <div class="table-wrapper card" th:if="${not data.isEmpty()}">
+        <div class="table-title" th:text="${#strings.toUpperCase(table) + ' Table'}">Table</div>
+        <div class="table-wrapper-inner" style="overflow-x: auto;">
+            <table class="debug-table">
+                <thead>
+                    <tr>
+                        <!-- Dynamically show column names from first row -->
+                        <th th:each="column : ${data.content[0].keySet()}" 
+                            th:text="${column}">
+                            Column
+                        </th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr th:each="row : ${data.content}">
+                        <td th:each="value : ${row.values()}"
+                            th:text="${value}">
+                            Value
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Pagination -->
+        <div class="pagination" th:if="${data.totalPages > 1}">
+            <a th:if="${data.hasPrevious()}"
+               th:href="@{/debug/tables(table=${table}, page=${page - 1}, size=${size})}">
+                ← Previous
+            </a>
+            <span th:if="${not data.hasPrevious()}" class="disabled">← Previous</span>
+
+            <span th:each="pageNum : ${#numbers.sequence(0, data.totalPages - 1)}"
+                  th:if="${pageNum >= page - 2 and pageNum <= page + 2}">
+                <a th:if="${pageNum != page}"
+                   th:href="@{/debug/tables(table=${table}, page=${pageNum}, size=${size})}"
+                   th:text="${pageNum + 1}">
+                    1
+                </a>
+                <span th:if="${pageNum == page}" class="active" th:text="${pageNum + 1}">1</span>
+                <span th:if="${pageNum == page + 3}" style="margin: 0 0.25rem;">...</span>
+            </span>
+
+            <a th:if="${data.hasNext()}"
+               th:href="@{/debug/tables(table=${table}, page=${page + 1}, size=${size})}">
+                Next →
+            </a>
+            <span th:if="${not data.hasNext()}" class="disabled">Next →</span>
+        </div>
+    </div>
+
+    <div class="info-box empty-box" th:if="${data.isEmpty()}">
+        <strong>No data found</strong> in the <span th:text="${table}"></span> table.
+    </div>
+</main>
+
+</body>
+</html>
