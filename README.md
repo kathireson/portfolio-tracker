@@ -12,6 +12,11 @@ and shows a dashboard with current allocations and rebalancing drift.
 - H2 file-based database — data persists across restarts
 - Pluggable quote providers: Yahoo Finance (default, no key needed) or Alpha Vantage
 
+## Screenshots of UI
+<img width="1284" height="787" alt="image" src="https://github.com/user-attachments/assets/8aaf56e9-2879-4eb5-a2ef-dabdabe7481d" />
+<img width="1280" height="646" alt="image" src="https://github.com/user-attachments/assets/d95c991d-5572-4edb-b032-85feccd2a061" />
+
+
 ## Requirements
 
 - Java 21+
