@@ -9,3 +9,4 @@ target
 deployment-script.sh
 data
 application-secret.properties
+renew-cert.sh
