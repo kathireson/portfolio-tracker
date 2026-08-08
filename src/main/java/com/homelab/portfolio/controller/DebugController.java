@@ -1,5 +1,6 @@
 package com.homelab.portfolio.controller;
 
+import com.homelab.portfolio.service.RebalanceService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -9,7 +10,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import java.util.List;
 import java.util.Map;
@@ -19,6 +22,9 @@ public class DebugController {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private RebalanceService rebalanceService;
 
     @GetMapping("/debug/tables")
     public String debugTables(
@@ -34,6 +40,7 @@ public class DebugController {
             case "portfolio" -> getPortfolioPage(offset, pageSize, page);
             case "holding" -> getHoldingPage(offset, pageSize, page);
             case "daily_snapshot" -> getDailySnapshotPage(offset, pageSize, page);
+            case "portfolio_daily_snapshot" -> getPortfolioDailySnapshotPage(offset, pageSize, page);
             default -> new PageImpl<>(List.of(), PageRequest.of(page, pageSize), 0);
         };
 
@@ -43,10 +50,11 @@ public class DebugController {
         model.addAttribute("size", pageSize);
 
         // Add table list for navigation
-        model.addAttribute("tables", List.of("portfolio", "holding", "daily_snapshot"));
+        model.addAttribute("tables", List.of("portfolio", "holding", "daily_snapshot", "portfolio_daily_snapshot"));
 
         return "debug-tables";
     }
+
 
     private Page<Map<String, Object>> getPortfolioPage(int offset, int pageSize, int page) {
         String countQuery = "SELECT COUNT(*) FROM PORTFOLIO";
@@ -166,4 +174,33 @@ public class DebugController {
 
         return "debug-portfolio-snapshots";
     }
+
+    private Page<Map<String, Object>> getPortfolioDailySnapshotPage(int offset, int pageSize, int page) {
+        String countQuery = "SELECT COUNT(*) FROM PORTFOLIO_DAILY_SNAPSHOT";
+        long total = jdbcTemplate.queryForObject(countQuery, Long.class);
+
+        String dataQuery = "SELECT ID, PORTFOLIO_ID, SNAPSHOT_DATE, ALLOCATED_VALUE, UNTRACKED_VALUE, CASH_VALUE, TOTAL_VALUE FROM PORTFOLIO_DAILY_SNAPSHOT ORDER BY SNAPSHOT_DATE DESC, ID DESC OFFSET ? ROWS FETCH NEXT ? ROWS ONLY";
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(dataQuery, offset, pageSize);
+
+        return new PageImpl<>(rows, PageRequest.of(page, pageSize), total);
+    }
+
+    /**
+     * Post endpoint to recalculate/backfill aggregate snapshots for all historical dates.
+     * Handled with concurrency guard and flash error/message feedback.
+     */
+    @PostMapping("/debug/recalculate-snapshots")
+    public String recalculateSnapshots(RedirectAttributes redirectAttributes) {
+        try {
+            int count = rebalanceService.recalculateAggregatedSnapshots();
+            redirectAttributes.addFlashAttribute("message",
+                    "Successfully recalculated aggregate snapshots for " + count + " historical dates.");
+        } catch (IllegalStateException e) {
+            redirectAttributes.addFlashAttribute("error", e.getMessage());
+        } catch (Exception e) {
+            redirectAttributes.addFlashAttribute("error", "Failed to recalculate snapshots: " + e.getMessage());
+        }
+        return "redirect:/debug/portfolio-snapshots";
+    }
 }
+

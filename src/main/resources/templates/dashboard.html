@@ -39,11 +39,15 @@
 
     <!-- Grand total card (across all portfolios) -->
     <section class="summary-grid" th:if="${vm.portfolios != null and not vm.portfolios.isEmpty()}">
-        <div class="card summary-card">
-            <div class="summary-label">Total Value (All Portfolios)</div>
-            <div class="summary-value" th:text="${'$' + #numbers.formatDecimal(vm.grandTotalValue, 1, 'COMMA', 2, 'POINT')}">$0.00</div>
+        <div class="card summary-card" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+            <div>
+                <div class="summary-label">Total Value (All Portfolios)</div>
+                <div class="summary-value" th:text="${'$' + #numbers.formatDecimal(vm.grandTotalValue, 1, 'COMMA', 2, 'POINT')}">$0.00</div>
+            </div>
+            <a href="/portfolio/all/history" class="btn btn-primary">📈 History</a>
         </div>
     </section>
+
 
     <!-- Loop through each portfolio -->
     <th:block th:each="portfolio : ${vm.portfolios}">

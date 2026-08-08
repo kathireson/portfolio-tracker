@@ -9,8 +9,10 @@ import com.homelab.portfolio.model.DailySnapshot;
 import com.homelab.portfolio.model.Holding;
 import com.homelab.portfolio.model.HoldingType;
 import com.homelab.portfolio.model.Portfolio;
+import com.homelab.portfolio.model.PortfolioDailySnapshot;
 import com.homelab.portfolio.repository.DailySnapshotRepository;
 import com.homelab.portfolio.repository.HoldingRepository;
+import com.homelab.portfolio.repository.PortfolioDailySnapshotRepository;
 import com.homelab.portfolio.repository.PortfolioRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -23,9 +25,12 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 @Service
@@ -39,6 +44,9 @@ public class RebalanceService {
     private final HoldingRepository holdingRepository;
     private final DailySnapshotRepository snapshotRepository;
     private final PortfolioRepository portfolioRepository;
+    private final PortfolioDailySnapshotRepository portfolioDailySnapshotRepository;
+
+    private final AtomicBoolean isRecalculating = new AtomicBoolean(false);
 
     /**
      * Builds the multi-portfolio dashboard view model containing all portfolios.
@@ -336,42 +344,185 @@ public class RebalanceService {
 
     /**
      * Builds a portfolio history view model with daily portfolio values.
-     * Fetches all daily snapshots for holdings in the portfolio and calculates
-     * the total portfolio value for each day, separated by holding type.
+     * Uses pre-calculated PortfolioDailySnapshot records for instant lookup,
+     * falling back to on-the-fly calculation if no pre-calculated snapshots exist.
      * 
      * @param portfolioId the ID of the portfolio
-     * @return PortfolioHistoryViewModel with historical data including allocated/untracked/cash breakdowns
+     * @return PortfolioHistoryViewModel with historical data
      */
     @Transactional(readOnly = true)
     public PortfolioHistoryViewModel buildPortfolioHistory(Long portfolioId) {
         Portfolio portfolio = portfolioRepository.findById(portfolioId)
                 .orElseThrow(() -> new IllegalArgumentException("Portfolio not found: " + portfolioId));
-        
+
+        List<PortfolioDailySnapshot> preCalculatedSnaps = 
+                portfolioDailySnapshotRepository.findByPortfolioOrderBySnapshotDateAsc(portfolio);
+
+        if (preCalculatedSnaps.isEmpty()) {
+            return buildPortfolioHistoryOnTheFly(portfolio);
+        }
+
+        List<PortfolioHistoryEntry> history = preCalculatedSnaps.stream()
+                .map(snap -> PortfolioHistoryEntry.builder()
+                        .date(snap.getSnapshotDate())
+                        .allocatedValue(snap.getAllocatedValue().setScale(2, RoundingMode.HALF_UP))
+                        .untrackedValue(snap.getUntrackedValue().setScale(2, RoundingMode.HALF_UP))
+                        .cashValue(snap.getCashValue().setScale(2, RoundingMode.HALF_UP))
+                        .totalValue(snap.getTotalValue().setScale(2, RoundingMode.HALF_UP))
+                        .build())
+                .collect(Collectors.toList());
+
+        return PortfolioHistoryViewModel.builder()
+                .portfolioId(portfolioId)
+                .portfolioName(portfolio.getName())
+                .history(history)
+                .build();
+    }
+
+    /**
+     * Builds a combined history view model aggregating all portfolios' daily values.
+     * Uses pre-calculated PortfolioDailySnapshot records (portfolio == null),
+     * falling back to on-the-fly calculation if no pre-calculated snapshots exist.
+     * 
+     * @return PortfolioHistoryViewModel with aggregated historical data across all portfolios
+     */
+    @Transactional(readOnly = true)
+    public PortfolioHistoryViewModel buildAllPortfoliosHistory() {
+        List<PortfolioDailySnapshot> grandTotalSnaps = 
+                portfolioDailySnapshotRepository.findByPortfolioIsNullOrderBySnapshotDateAsc();
+
+        if (grandTotalSnaps.isEmpty()) {
+            return buildAllPortfoliosHistoryOnTheFly();
+        }
+
+        List<PortfolioHistoryEntry> history = grandTotalSnaps.stream()
+                .map(snap -> PortfolioHistoryEntry.builder()
+                        .date(snap.getSnapshotDate())
+                        .allocatedValue(snap.getAllocatedValue().setScale(2, RoundingMode.HALF_UP))
+                        .untrackedValue(snap.getUntrackedValue().setScale(2, RoundingMode.HALF_UP))
+                        .cashValue(snap.getCashValue().setScale(2, RoundingMode.HALF_UP))
+                        .totalValue(snap.getTotalValue().setScale(2, RoundingMode.HALF_UP))
+                        .build())
+                .collect(Collectors.toList());
+
+        return PortfolioHistoryViewModel.builder()
+                .portfolioId(null)
+                .portfolioName("All Portfolios")
+                .history(history)
+                .build();
+    }
+
+    /**
+     * Recalculates pre-aggregated PortfolioDailySnapshot rows for all historical snapshot dates.
+     * Protected by an AtomicBoolean concurrency guard to prevent duplicate concurrent runs.
+     * 
+     * @return count of historical dates processed
+     * @throws IllegalStateException if recalculation is already in progress
+     */
+    @Transactional
+    public int recalculateAggregatedSnapshots() {
+        if (!isRecalculating.compareAndSet(false, true)) {
+            throw new IllegalStateException("Snapshot recalculation is already in progress.");
+        }
+
+        try {
+            List<LocalDate> dates = snapshotRepository.findDistinctSnapshotDates();
+            List<Portfolio> portfolios = portfolioRepository.findAll();
+
+            for (LocalDate date : dates) {
+                recalculateAggregatedSnapshotsForDate(date, portfolios);
+            }
+            log.info("Recalculated aggregate snapshots for {} historical dates", dates.size());
+            return dates.size();
+        } finally {
+            isRecalculating.set(false);
+        }
+    }
+
+    /**
+     * Recalculates and upserts pre-aggregated PortfolioDailySnapshot rows for a specific date.
+     * Updates each portfolio individually as well as the grand total across all portfolios (portfolio == null).
+     * 
+     * @param date the snapshot date
+     */
+    @Transactional
+    public void recalculateAggregatedSnapshotsForDate(LocalDate date) {
+        List<Portfolio> portfolios = portfolioRepository.findAll();
+        recalculateAggregatedSnapshotsForDate(date, portfolios);
+    }
+
+    @Transactional
+    public void recalculateAggregatedSnapshotsForDate(LocalDate date, List<Portfolio> portfolios) {
+        List<DailySnapshot> dateSnapshots = snapshotRepository.findBySnapshotDateOrderByHoldingTicker(date);
+
+        Map<Long, DailyTotalsByType> portfolioTotalsMap = new HashMap<>();
+        DailyTotalsByType grandTotals = new DailyTotalsByType();
+
+        for (DailySnapshot snap : dateSnapshots) {
+            Holding h = snap.getHolding();
+            if (h != null && h.getPortfolio() != null) {
+                portfolioTotalsMap.computeIfAbsent(h.getPortfolio().getId(), k -> new DailyTotalsByType())
+                        .addValue(h.getHoldingType(), snap.getTotalValue());
+                grandTotals.addValue(h.getHoldingType(), snap.getTotalValue());
+            }
+        }
+
+        // Upsert per portfolio
+        for (Portfolio portfolio : portfolios) {
+            DailyTotalsByType totals = portfolioTotalsMap.getOrDefault(portfolio.getId(), new DailyTotalsByType());
+            upsertPortfolioDailySnapshot(portfolio, date, totals);
+        }
+
+        // Upsert grand total across all portfolios (portfolio = null)
+        upsertPortfolioDailySnapshot(null, date, grandTotals);
+    }
+
+    private void upsertPortfolioDailySnapshot(Portfolio portfolio, LocalDate date, DailyTotalsByType totals) {
+        Optional<PortfolioDailySnapshot> existing = portfolio == null
+                ? portfolioDailySnapshotRepository.findByPortfolioIsNullAndSnapshotDate(date)
+                : portfolioDailySnapshotRepository.findByPortfolioAndSnapshotDate(portfolio, date);
+
+        if (existing.isPresent()) {
+            PortfolioDailySnapshot snap = existing.get();
+            snap.setAllocatedValue(totals.getAllocatedValue());
+            snap.setUntrackedValue(totals.getUntrackedValue());
+            snap.setCashValue(totals.getCashValue());
+            snap.setTotalValue(totals.getTotalValue());
+            portfolioDailySnapshotRepository.save(snap);
+        } else {
+            portfolioDailySnapshotRepository.save(PortfolioDailySnapshot.builder()
+                    .portfolio(portfolio)
+                    .snapshotDate(date)
+                    .allocatedValue(totals.getAllocatedValue())
+                    .untrackedValue(totals.getUntrackedValue())
+                    .cashValue(totals.getCashValue())
+                    .totalValue(totals.getTotalValue())
+                    .build());
+        }
+    }
+
+    /** Fallback on-the-fly calculation for a single portfolio when no pre-calculated snapshot exists. */
+    private PortfolioHistoryViewModel buildPortfolioHistoryOnTheFly(Portfolio portfolio) {
         List<Holding> holdings = holdingRepository.findByPortfolio(portfolio);
         if (holdings.isEmpty()) {
             return PortfolioHistoryViewModel.builder()
-                    .portfolioId(portfolioId)
+                    .portfolioId(portfolio.getId())
                     .portfolioName(portfolio.getName())
                     .history(List.of())
                     .build();
         }
 
-        // Get all snapshots for all holdings in this portfolio, grouped by date and type
-        java.util.Map<LocalDate, DailyTotalsByType> dailyTotals = new java.util.TreeMap<>();
-        
+        Map<LocalDate, DailyTotalsByType> dailyTotals = new java.util.TreeMap<>();
         for (Holding holding : holdings) {
-            // Get ALL snapshots for this holding (no limit) to ensure all historical data is included
             List<DailySnapshot> snapshots = snapshotRepository.findByHoldingOrderBySnapshotDateDesc(holding);
-            
             for (DailySnapshot snap : snapshots) {
                 dailyTotals.computeIfAbsent(snap.getSnapshotDate(), k -> new DailyTotalsByType())
                         .addValue(holding.getHoldingType(), snap.getTotalValue());
             }
         }
 
-        // Convert to sorted list of history entries (oldest first for chart display)
         List<PortfolioHistoryEntry> history = dailyTotals.entrySet().stream()
-                .sorted(java.util.Map.Entry.comparingByKey())
+                .sorted(Map.Entry.comparingByKey())
                 .map(e -> {
                     DailyTotalsByType totals = e.getValue();
                     return PortfolioHistoryEntry.builder()
@@ -385,8 +536,49 @@ public class RebalanceService {
                 .collect(Collectors.toList());
 
         return PortfolioHistoryViewModel.builder()
-                .portfolioId(portfolioId)
+                .portfolioId(portfolio.getId())
                 .portfolioName(portfolio.getName())
+                .history(history)
+                .build();
+    }
+
+    /** Fallback on-the-fly calculation for all portfolios combined when no pre-calculated snapshot exists. */
+    private PortfolioHistoryViewModel buildAllPortfoliosHistoryOnTheFly() {
+        List<Holding> holdings = holdingRepository.findAll();
+        if (holdings.isEmpty()) {
+            return PortfolioHistoryViewModel.builder()
+                    .portfolioId(null)
+                    .portfolioName("All Portfolios")
+                    .history(List.of())
+                    .build();
+        }
+
+        Map<LocalDate, DailyTotalsByType> dailyTotals = new java.util.TreeMap<>();
+        for (Holding holding : holdings) {
+            List<DailySnapshot> snapshots = snapshotRepository.findByHoldingOrderBySnapshotDateDesc(holding);
+            for (DailySnapshot snap : snapshots) {
+                dailyTotals.computeIfAbsent(snap.getSnapshotDate(), k -> new DailyTotalsByType())
+                        .addValue(holding.getHoldingType(), snap.getTotalValue());
+            }
+        }
+
+        List<PortfolioHistoryEntry> history = dailyTotals.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .map(e -> {
+                    DailyTotalsByType totals = e.getValue();
+                    return PortfolioHistoryEntry.builder()
+                            .date(e.getKey())
+                            .allocatedValue(totals.getAllocatedValue().setScale(2, RoundingMode.HALF_UP))
+                            .untrackedValue(totals.getUntrackedValue().setScale(2, RoundingMode.HALF_UP))
+                            .cashValue(totals.getCashValue().setScale(2, RoundingMode.HALF_UP))
+                            .totalValue(totals.getTotalValue().setScale(2, RoundingMode.HALF_UP))
+                            .build();
+                })
+                .collect(Collectors.toList());
+
+        return PortfolioHistoryViewModel.builder()
+                .portfolioId(null)
+                .portfolioName("All Portfolios")
                 .history(history)
                 .build();
     }
@@ -417,3 +609,4 @@ public class RebalanceService {
 
     private record HoldingPriceEntry(Holding holding, BigDecimal price, BigDecimal value) {}
 }
+

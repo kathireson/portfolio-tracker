@@ -26,6 +26,8 @@ public class QuoteService {
     private final HoldingRepository holdingRepository;
     private final DailySnapshotRepository snapshotRepository;
     private final QuoteProvider quoteProvider;
+    private final RebalanceService rebalanceService;
+
 
     /**
      * Data migration: fixes any existing CASH snapshots that have NULL price.
@@ -210,6 +212,13 @@ public class QuoteService {
             }
         }
 
+        // Recalculate pre-aggregated portfolio snapshots for today
+        try {
+            rebalanceService.recalculateAggregatedSnapshotsForDate(today);
+        } catch (Exception e) {
+            log.error("Error recalculating aggregated snapshots for today: {}", e.getMessage(), e);
+        }
+
         log.info("Quote refresh complete: {}/{} unique tickers fetched, {}/{} holdings updated " +
                  "({} holdings including {} CASH)", 
             tickerPrices.size(), uniqueTickers.size(), successCount, allHoldings.size(), 
@@ -217,3 +226,4 @@ public class QuoteService {
         return successCount;
     }
 }
+

@@ -32,4 +32,9 @@ public interface DailySnapshotRepository extends JpaRepository<DailySnapshot, Lo
             WHERE h.portfolio.id = :portfolioId
             """)
     Optional<LocalDate> findLatestSnapshotDateForPortfolio(@Param("portfolioId") Long portfolioId);
+
+    /** Get all distinct snapshot dates in chronological order. */
+    @Query("SELECT DISTINCT ds.snapshotDate FROM DailySnapshot ds ORDER BY ds.snapshotDate ASC")
+    List<LocalDate> findDistinctSnapshotDates();
 }
+

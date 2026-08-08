@@ -220,11 +220,30 @@
 </header>
 
 <main class="main">
+
+    <!-- Flash message -->
+    <div class="flash" th:if="${message}" th:text="${message}"></div>
+    <div class="flash" style="background: var(--red-bg); border-color: #5a1a1a; color: var(--red);" th:if="${error}" th:text="${error}"></div>
+
+    <!-- Recalculate Aggregated Snapshots Action -->
+    <div style="margin-bottom: 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; background: var(--bg2); padding: 1rem 1.25rem; border: 1px solid var(--border); border-radius: var(--radius);">
+        <div>
+            <strong style="color: var(--text);">Aggregated Portfolio Snapshots</strong>
+            <p style="font-size: 0.8rem; color: var(--muted); margin-top: 0.2rem;">
+                Backfill and recalculate historical totals per portfolio &amp; all portfolios combined for fast history rendering.
+            </p>
+        </div>
+        <form th:action="@{/debug/recalculate-snapshots}" method="post">
+            <button class="btn btn-primary" type="submit">⚡ Recalculate Aggregate Snapshots</button>
+        </form>
+    </div>
+
     <div class="debug-header">
         <div class="debug-title">
             <h1 th:text="${portfolioName}">Portfolio Name</h1>
         </div>
     </div>
+
 
     <!-- Portfolio selector -->
     <div class="portfolio-selector">

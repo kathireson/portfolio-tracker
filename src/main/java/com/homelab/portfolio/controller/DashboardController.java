@@ -63,6 +63,14 @@ public class DashboardController {
         return "dashboard";
     }
 
+    /** Combined history page across all portfolios */
+    @GetMapping("/portfolio/all/history")
+    public String allPortfoliosHistory(Model model) {
+        PortfolioHistoryViewModel vm = rebalanceService.buildAllPortfoliosHistory();
+        model.addAttribute("vm", vm);
+        return "portfolio-history";
+    }
+
     /** Portfolio history page */
     @GetMapping("/portfolio/{portfolioId}/history")
     public String portfolioHistory(@PathVariable Long portfolioId, Model model) {
@@ -70,6 +78,7 @@ public class DashboardController {
         model.addAttribute("vm", vm);
         return "portfolio-history";
     }
+
 
     /** Manual "refresh quotes now" button */
     @PostMapping("/quotes/refresh")
