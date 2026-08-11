@@ -12,7 +12,7 @@ public class WebConfig implements WebMvcConfigurer {
         // *** DEVELOPMENT CHANGE ***: Allow all origins for local testing.
         // *** PRODUCTION CHANGE ***: Change to "https://your-duckdns-ip" only.
         registry.addMapping("/**")
-                .allowedOrigins("http://localhost:8080", "http://localhost:8080") // <-- Change this for production
+                .allowedOriginPatterns("*")
                 .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
                 .allowedHeaders("*")
                 .allowCredentials(true)
